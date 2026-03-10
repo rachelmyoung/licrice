@@ -20,6 +20,26 @@ pip install -e .
 
 Dependencies (`numpy`, `xarray`, `pandas`, `dask`, `zarr`, `scipy`, `scikit-learn`, `joblib`, `beautifulsoup4`, `tqdm`, `netCDF4`, `bottleneck` ) are declared in `pyproject.toml` and installed automatically.
 
+Create directories for the IBTrACS input data and LICRICE outputs:
+
+```bash
+mkdir -p data/raw
+mkdir -p data/output
+```
+
+Expected structure
+```
+licrice-standalone/
+├── data/
+│   ├── raw/
+│   │   └── IBTrACS.ALL.v04r01.nc
+│   └── output/
+│       └── hazard_wind_licrice_hist_<domain>.zarr
+├── params/
+├── licrice/
+├── run_licrice.py
+└── pyproject.toml
+```
 
 ## Data
 
