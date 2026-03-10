@@ -16,6 +16,10 @@ dependencies = [
     "zarr",
     "scikit-learn",  # NEW
     "joblib",  # NEW
+    "beautifulsoup4", # NEW
+    "tqdm", # NEW
+    "netCDF4", # NEW
+    "bottleneck" # NEW
 ]
 
 [tool.setuptools.packages.find]
