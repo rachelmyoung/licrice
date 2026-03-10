@@ -1,0 +1,19 @@
+{
+    "maxs": true,
+    "pddi": true,
+    "wind": {
+        "vortex_func": "get_modified_rankine_vortex",
+        "vortex_func_kwargs": {},
+        "ramp_width": 100e3,
+        "sampling_time_adj": 1,
+        "scale_translational_velocity": true
+    },
+    "grid": {
+        "dist_func": "get_vortex_angles_dists_great_circle",
+        "res_spatial_deg": 0.1,
+        "v_min_ms": null
+    },
+    "ibtracs": {
+        "missing_roci_fill_km": 400
+    }
+}
