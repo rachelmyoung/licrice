@@ -1,7 +1,10 @@
 # licrice-standalone
 
-This document describes the code and data necessary to reproduce the surface wind speed for the historical storm dataset from Hsiang et al. XXXX "Limited Information Cyclone Reconstruction and Integration for Climate and Economics (LICRICE)". 
-A standalone package for the LICRICE tropical cyclone wind field model on historical IBTrACS tracks. Given a raw IBTrACS NetCDF (or Zarr) file plus a geographic region, it processes the tracks, estimates missing storm radii using RF, runs the wind fields model, and writes the output.
+This repository contains the code and data required to reproduce the historical tropical cyclone surface wind speed dataset used in Hsiang et al. XXXX, “Limited Information Cyclone Reconstruction and Integration for Climate and Economics (LICRICE).”
+
+
+LICRICE is a tropical cyclone wind field modeling pipeline that generates surface wind fields from historical IBTrACS storm tracks. Given an IBTrACS NetCDF (or Zarr) dataset and a defined geographic region, the system preprocesses the tracks, estimates missing storm radii using a random forest model, computes wind fields using a parametric vortex model, and writes the resulting gridded outputs. 
+
 
 ## Setup
 
