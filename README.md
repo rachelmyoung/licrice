@@ -34,8 +34,9 @@ licrice-standalone/
 │   │   ├── preprocess.py   # Track → pixel step conversion, Zarr setup
 │   │   ├── vortex_funcs.py # Parametric vortex models (modified Rankine, Holland 1980)
 │   │   ├── dist_funcs.py   # Distance/angle grid construction
-│   │   ├── utils.py        # Wind field accumulation helpers
-│   │   └── aggregate_storm_admin.py 
+│   │   └── utils.py        # Wind field accumulation helpers
+│   ├── aggregation/
+│   │   └── aggregate_storm_admin.py  # After wind fields are constructed aggregates to admin0-2 level
 ├── data/
 │   ├── raw/
 │   │   └── IBTrACS.ALL.v04r01.nc                          # IBTrACS files go here after they are extracted
