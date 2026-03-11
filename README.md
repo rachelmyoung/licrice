@@ -1,16 +1,49 @@
 # licrice-standalone
 
+This document describes the code and data necessary to reproduce the surface wind speed for the historical storm dataset from Hsiang et al. XXXX "Limited Information Cyclone Reconstruction and Integration for Climate and Economics (LICRICE)". 
 A standalone package for the LICRICE tropical cyclone wind field model on historical IBTrACS tracks. Given a raw IBTrACS NetCDF (or Zarr) file plus a geographic region, it processes the tracks, estimates missing storm radii using RF, runs the wind fields model, and writes the output.
-
-
-**Outputs:**
-- `maxs` — maximum sustained wind speed (m/s) experienced at each grid cell during a storm
-- `pddi` — power dissipation density index (m³/s²), the integral of wind speed cubed over time
-
 
 ## Setup
 
-Requires Python 3.9 or greater
+All scripts are written in Python. Throughout this README, when indicating paths to code and data, it is assumed that you’ll execute scripts from the folder structure provided in this repository using Python 3.9 or greater.
+
+Please cite as:
+XXXXX
+
+**Folder Structure**
+```
+licrice-standalone/
+├── README.md
+├── run_licrice.py          # Command-Line Interface entry point
+├── params/
+│   └── licrice/v1.1.json   # Model parameters (vortex func, grid resolution, etc.)
+├── licrice/
+│   ├── io/
+│   │   └── ibtracs.py      # IBTrACS ingestion and preprocessing
+│   ├── tracks/
+│   │   ├── radius.py       # RF-based RMW and ROCI estimation
+│   │   ├── velocity.py     # Translational and circular velocity calculations
+│   │   └── utils.py        # Track filtering and cleaning utilities
+│   ├── licrice/
+│   │   ├── run.py          # LICRICE execution loop
+│   │   ├── preprocess.py   # Track → pixel step conversion, Zarr setup
+│   │   ├── vortex_funcs.py # Parametric vortex models (modified Rankine, Holland 1980)
+│   │   ├── dist_funcs.py   # Distance/angle grid construction
+│   │   └── utils.py        # Wind field accumulation helpers
+│   ├── spatial.py          # Great circle distances, grid index conversions
+│   └── utilities.py        # smooth_fill, unit conversions, Zarr workflow checks
+├── data/
+│   ├── raw/
+│   │   └── IBTrACS.ALL.v04r01.nc                     # IBTrACS files go here after they are extracted
+│   └── output/
+│       └── hazard_wind_licrice_hist_<domain>.zarr    # output final LICRICE wind files
+└── pyproject.toml
+```
+
+
+## Replication Process
+
+### Install packages and file structure
 
 ```bash
 git clone https://github.com/<your-org>/licrice-standalone.git 
@@ -27,23 +60,9 @@ mkdir -p data/raw
 mkdir -p data/output
 ```
 
-Expected structure
-```
-licrice-standalone/
-├── data/
-│   ├── raw/
-│   │   └── IBTrACS.ALL.v04r01.nc                     # IBTrACS files go here after they are extracted
-│   └── output/
-│       └── hazard_wind_licrice_hist_<domain>.zarr    # output final LICRICE wind files
-├── params/
-├── licrice/
-├── run_licrice.py
-└── pyproject.toml
-```
+### Data retrieval from teh IBTrACs portal
 
-## Data
-
-Download IBTrACS (v04r00 or v04r01) from NOAA:
+Download International Best Track Archive for Climate Stewardship (IBTrACS) [v04r01] dataset from the NOAA National Centers for Environmental Information (NCEI) with:
 
 ```bash
 python - <<'EOF'
@@ -57,9 +76,9 @@ EOF
 
 Or manually from [NOAA IBTrACS](https://www.ncei.noaa.gov/products/international-best-track-archive).
 
-## Usage
+### Run LICRICE to construct storm wind swaths
 
-### Run on IBTrACS tracks
+The entire pipeline for all of the domains (areas of the global, see below for additional details) can be run from the master workflow with the following bash:
 
 ```bash
 # Standard run (recommended)
@@ -67,7 +86,11 @@ python run_licrice.py \
     --input data/raw/IBTrACS.ALL.v04r01.nc \
     --domain all \
     --outdir data/output/
-    
+```
+
+If instead you wish to run the pipeline for specific domains or if you wish to run part of the pipeline, you can also run the following bash commands.
+
+```bash  
 # Run selected domains
 python run_licrice.py \
     --input data/raw/IBTrACS.ALL.v04r01.nc \
@@ -88,12 +111,7 @@ python run_licrice.py \
     --outdir data/output/
 ```
 
-Each domain produces: `data/output/hazard_wind_licrice_hist_<domain>.zarr`
-
-The first run processes the NetCDF (cleans tracks, trains RF radius models, saves to `ibtracs_preprocessed.zarr`). Only needs to be run once. Later runs with `--no-overwrite-preproc` skip straight to LICRICE.
-
-
-### CLI flags
+### Command Line Interface (CLI) flags
 
 | Flag | Description |
 |---|---|
@@ -107,7 +125,13 @@ The first run processes the NetCDF (cleans tracks, trains RF radius models, save
 | `--storm-chunksize` | Storms per processing chunk (default 25) |
 | `--list-domains` | Print all built-in domain names and bounds, then exit |
 
-### Available domains (from coastal-core-main)
+Each domain produces: `data/output/hazard_wind_licrice_hist_<domain>.zarr`
+
+The first run processes the NetCDF (cleans tracks, trains RF radius models, saves to `ibtracs_preprocessed.zarr`). Only needs to be run once. Later runs with `--no-overwrite-preproc` skip straight to LICRICE.
+
+### Available domains
+
+Domains outlined below are geographically defined coastal regions used to organize the analysis. They do not correspond exactly to tropical cyclone basins and may span portions of multiple basins. Instead, domains were defined to capture all regions where tropical cyclones meaningfully affect land.
 
 | Domain | Description |
 |---|---|
@@ -141,35 +165,12 @@ Coordinates
 - `y_ix (y_ix)` — y-direction grid index
 
 Data variables
-- `maxs (storm, y_ix, x_ix)` — peak wind speed per grid cell per storm (m/s, float32)
-- `pddi (storm, y_ix, x_ix)` — power dissipation density index per grid cell per storm (m³/s², float32)
+- `maxs (storm, y_ix, x_ix)` — maximum sustained wind speed (m/s, float32) experienced at each grid cell during a storm
+- `pddi (storm, y_ix, x_ix)` — power dissipation density index per grid cell per storm (m³/s², float32), the integral of wind speed cubed over time
 - `start_date (storm)` — storm start datetime
 
 Grid cell size is 0.1° (configurable via the params JSON).
 
-## Code Structure
-
-```
-licrice-standalone/
-├── run_licrice.py          # CLI entry point
-├── params/
-│   └── licrice/v1.1.json   # Model parameters (vortex func, grid resolution, etc.)
-├── licrice/
-│   ├── io/
-│   │   └── ibtracs.py      # IBTrACS ingestion and preprocessing
-│   ├── tracks/
-│   │   ├── radius.py       # RF-based RMW and ROCI estimation
-│   │   ├── velocity.py     # Translational and circular velocity calculations
-│   │   └── utils.py        # Track filtering and cleaning utilities
-│   ├── licrice/
-│   │   ├── run.py          # LICRICE execution loop
-│   │   ├── preprocess.py   # Track → pixel step conversion, Zarr setup
-│   │   ├── vortex_funcs.py # Parametric vortex models (modified Rankine, Holland 1980)
-│   │   ├── dist_funcs.py   # Distance/angle grid construction
-│   │   └── utils.py        # Wind field accumulation helpers
-│   ├── spatial.py          # Great circle distances, grid index conversions
-│   └── utilities.py        # smooth_fill, unit conversions, Zarr workflow checks
-```
 
 ## Notes
 
