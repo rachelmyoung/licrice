@@ -21,6 +21,8 @@ licrice-standalone/
 ├── params/
 │   └── licrice/v1.1.json   # Model parameters (vortex func, grid resolution, etc.)
 ├── licrice/
+│   ├── spatial.py          # Great circle distances, grid index conversions
+│   ├──  utilities.py        # smooth_fill, unit conversions, Zarr workflow checks
 │   ├── io/
 │   │   └── ibtracs.py      # IBTrACS ingestion and preprocessing
 │   ├── tracks/
@@ -32,14 +34,20 @@ licrice-standalone/
 │   │   ├── preprocess.py   # Track → pixel step conversion, Zarr setup
 │   │   ├── vortex_funcs.py # Parametric vortex models (modified Rankine, Holland 1980)
 │   │   ├── dist_funcs.py   # Distance/angle grid construction
-│   │   └── utils.py        # Wind field accumulation helpers
-│   ├── spatial.py          # Great circle distances, grid index conversions
-│   └── utilities.py        # smooth_fill, unit conversions, Zarr workflow checks
+│   │   ├── utils.py        # Wind field accumulation helpers
+│   │   └── aggregate_storm_admin.py 
 ├── data/
 │   ├── raw/
-│   │   └── IBTrACS.ALL.v04r01.nc                     # IBTrACS files go here after they are extracted
-│   └── output/
-│       └── hazard_wind_licrice_hist_<domain>.zarr    # output final LICRICE wind files
+│   │   └── IBTrACS.ALL.v04r01.nc                          # IBTrACS files go here after they are extracted
+│   ├── output/
+│   │   └── hazard_wind_licrice_hist_<domain>.zarr         # output LICRICE wind files
+│   └── aggregated/
+│       ├── spatial/
+│       │   └── storm_<admin>_<domain>_<haz>.parquet     # output spaitally weighted wind fields
+│       ├── population/
+│       │   └── storm_<admin>_<domain>_<haz>.parquet     # output population weighted wind fields
+│       └── asset/
+│           └── storm_<admin>_<domain>_<haz>.parquet     # output asset weighted wind fields
 └── pyproject.toml
 ```
 
@@ -173,6 +181,9 @@ Data variables
 - `start_date (storm)` — storm start datetime
 
 Grid cell size is 0.1° (configurable via the params JSON).
+
+## Aggregation to adminstative boundary
+
 
 
 ## Notes
