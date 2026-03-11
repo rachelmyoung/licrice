@@ -1,4 +1,4 @@
-# licrice-standalone
+# licrice
 
 This repository contains the code and data required to reproduce the historical tropical cyclone surface wind speed dataset used in Hsiang et al. XXXX, “Limited Information Cyclone Reconstruction and Integration for Climate and Economics (LICRICE).”
 
