@@ -64,7 +64,7 @@ licrice-standalone/
 ### Install packages
 
 ```bash
-git clone https://github.com/<your-org>/licrice-standalone.git 
+git clone https://github.com/rachelmyoung/licrice-standalone.git 
 cd licrice-standalone
 pip install -e .
 ```
