@@ -4,23 +4,24 @@ Aggregate LICRICE storm wind fields to administrative units.
 
 Currently supported:
     spatial      : area-weighted (unconditional mean)
-
-Planned but not yet implemented:
     asset        : asset-weighted mean (LitPop)
-    population   : population-weighted mean
+    population   : population-weighted mean (static 2015 LandScan population)
 
 Expected raw inputs:
     data/raw/admin/gadm_410.gpkg
-    data/raw/LitPop_v1_2/LitPop_pc_30arcsec_<country>.csv
+    data/raw/LitPop_v1_2
+    data/raw/landscan/...
     data/output/hazard/hazard_wind_licrice_hist_<domain>.zarr
 
 Outputs:
     data/output/aggregated/spatial/
     data/output/aggregated/asset/
+    data/output/aggregated/population/
 
 Example filenames:
-    storm_admin0_uncondmean_east_pacific_north_maxs.parquet
-    storm_admin0_assetw_uncondmean_east_pacific_north_maxs.parquet
+    storm_admin0_area_east_pacific_north_maxs.parquet
+    storm_admin0_popw_east_pacific_north_maxs.parquet
+    storm_admin0_assetw_east_pacific_north_maxs.parquet
 """
 
 from __future__ import annotations
@@ -39,6 +40,10 @@ import xarray as xr
 from pyproj import Transformer
 from scipy import sparse
 
+import rasterio
+from rasterio.enums import Resampling
+from rasterio.warp import reproject
+
 # ---------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------
@@ -48,9 +53,9 @@ DEFAULT_ADMIN_FILE = Path("data/raw/admin/gadm_410.gpkg")
 DEFAULT_OUTROOT = Path("data/output/aggregated")
 
 SCHEME_TAG = {
-    "spatial": "uncondmean",
-    "asset": "assetw_uncondmean",      # placeholder only for now
-    "population": "popw_uncondmean",   # placeholder only for now
+    "spatial": "area",
+    "asset": "assetw",
+    "population": "popw",
 }
 
 # ---------------------------------------------------------------------
@@ -79,10 +84,21 @@ def build_output_path(
     basin_slug: str,
     haz_var: str,
 ) -> Path:
+
     outroot = Path(outroot)
-    outdir = outroot / ("asset" if scheme == "asset" else "spatial")
+
+    if scheme == "asset":
+        outdir = outroot / "asset"
+    elif scheme == "population":
+        outdir = outroot / "population"
+    else:
+        outdir = outroot / "spatial"
+
     outdir.mkdir(parents=True, exist_ok=True)
-    fname = f"storm_admin{admin_level}_{SCHEME_TAG[scheme]}_{basin_slug}_{haz_var}.parquet"
+
+    tag = SCHEME_TAG[scheme]
+    fname = f"storm_admin{admin_level}_{tag}_{basin_slug}_{haz_var}.parquet"
+
     return outdir / fname
 
 
@@ -96,41 +112,6 @@ def require_admin_file(admin_file: str | Path) -> Path:
     return admin_file
 
 
-def load_gadm_admin(
-    admin_file: str | Path,
-    level: int,
-    projected_crs: str = PROJECTED_CRS,
-) -> gpd.GeoDataFrame:
-    admin_file = require_admin_file(admin_file)
-    layer_name = f"ADM_{level}"
-    layers = fiona.listlayers(str(admin_file))
-    if layer_name not in layers:
-        raise ValueError(f"Layer {layer_name} not found in {admin_file}. Available layers: {layers}")
-
-    gdf = gpd.read_file(admin_file, layer=layer_name)
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-    gdf = gdf.to_crs(projected_crs)
-    return gdf
-
-
-def load_all_admin_layers(
-    admin_file: str | Path,
-    projected_crs: str = PROJECTED_CRS,
-) -> dict[str, gpd.GeoDataFrame]:
-    return {
-        "admin0": load_gadm_admin(admin_file, 0, projected_crs),
-        "admin1": load_gadm_admin(admin_file, 1, projected_crs),
-        "admin2": load_gadm_admin(admin_file, 2, projected_crs),
-    }
-
-
-def admin_id_field(level_name: str) -> str:
-    return {
-        "admin0": "GID_0",
-        "admin1": "GID_1",
-        "admin2": "GID_2",
-    }[level_name]
 
 
 # ---------------------------------------------------------------------
@@ -225,6 +206,24 @@ def load_gadm_admin(
         raise ValueError(f"Unsupported level: {level}")
 
     return out.reset_index(drop=True)
+
+
+def load_all_admin_layers(
+    admin_file: str | Path,
+    projected_crs: str = PROJECTED_CRS,
+) -> dict[str, gpd.GeoDataFrame]:
+    return {
+        "admin0": load_gadm_admin(admin_file, 0, projected_crs=projected_crs),
+        "admin1": load_gadm_admin(admin_file, 1, projected_crs=projected_crs),
+        "admin2": load_gadm_admin(admin_file, 2, projected_crs=projected_crs),
+    }
+
+def admin_id_field(level_name: str) -> str:
+    return {
+        "admin0": "GID_0",
+        "admin1": "GID_1",
+        "admin2": "GID_2",
+    }[level_name]
 
 
 def build_uncond_area_share_matrix_lazy(
@@ -372,15 +371,19 @@ def load_litpop_assets_to_wind_grid(
     litpop_dir: str | Path,
     lat_array: np.ndarray,
     lon_array: np.ndarray,
+    pattern: str = "*.csv",
+    recursive: bool = True,
+    chunksize: int = 500_000,
 ) -> np.ndarray:
     """
-    Aggregate high-resolution LitPop assets INTO the coarser wind grid
-    using wind-cell edges (correct spatial binning).
+    Aggregate high-resolution LitPop assets into the coarser wind grid
+    using wind-cell edges.
+
+    Safely handles both ascending and descending wind-grid coordinates.
 
     Returns:
         asset_grid with shape (nlat, nlon)
     """
-
     litpop_dir = Path(litpop_dir)
     files = list(litpop_dir.rglob(pattern)) if recursive else list(litpop_dir.glob(pattern))
     if not files:
@@ -388,13 +391,19 @@ def load_litpop_assets_to_wind_grid(
 
     lat = np.asarray(lat_array, dtype=np.float64)
     lon = np.asarray(lon_array, dtype=np.float64)
+
     nlat, nlon = len(lat), len(lon)
-
-    # build wind cell edges
-    lat_edges = _grid_edges_1d(lat)
-    lon_edges = _grid_edges_1d(lon)
-
     grid = np.zeros((nlat, nlon), dtype=np.float32)
+
+    # Build ascending centers/edges for search
+    lat_desc = lat[0] > lat[-1]
+    lon_desc = lon[0] > lon[-1]
+
+    lat_search = lat[::-1] if lat_desc else lat
+    lon_search = lon[::-1] if lon_desc else lon
+
+    lat_edges = _grid_edges_1d(lat_search)
+    lon_edges = _grid_edges_1d(lon_search)
 
     for f in files:
         for chunk in pd.read_csv(
@@ -410,25 +419,30 @@ def load_litpop_assets_to_wind_grid(
             if not np.any(m):
                 continue
 
-            v, la, lo = v[m], la[m], lo[m]
+            v = v[m]
+            la = la[m]
+            lo = lo[m]
 
-            # determine which wind-cell each LitPop pixel falls into
             i = np.searchsorted(lat_edges, la, side="right") - 1
             j = np.searchsorted(lon_edges, lo, side="right") - 1
 
-            # clip to valid indices
-            valid = (
-                (i >= 0) & (i < nlat) &
-                (j >= 0) & (j < nlon)
-            )
-
+            valid = (i >= 0) & (i < nlat) & (j >= 0) & (j < nlon)
             if not np.any(valid):
                 continue
 
-            np.add.at(grid, (i[valid], j[valid]), v[valid])
+            i = i[valid]
+            j = j[valid]
+            v = v[valid]
+
+            # Map back to original array orientation
+            if lat_desc:
+                i = (nlat - 1) - i
+            if lon_desc:
+                j = (nlon - 1) - j
+
+            np.add.at(grid, (i, j), v)
 
     return grid
-
 
 def build_asset_weight_matrix(
     W_share: sparse.csr_matrix,
@@ -452,11 +466,125 @@ def build_asset_weight_matrix(
 
     return W.tocsr()
 
+def discover_landscan_files(landscan_dir: str | Path) -> dict[int, Path]:
+    """
+    Discover annual LandScan rasters in a directory.
 
-def build_population_weight_matrix(*args, **kwargs):
-    raise NotImplementedError(
-        "Population-weighted aggregation is not implemented yet."
+    Returns:
+        dict mapping year -> raster path
+    """
+    landscan_dir = Path(landscan_dir)
+    if not landscan_dir.exists():
+        raise FileNotFoundError(f"LandScan directory not found: {landscan_dir}")
+
+    candidates = list(landscan_dir.glob("*.tif")) + list(landscan_dir.glob("*.tiff"))
+    if not candidates:
+        raise FileNotFoundError(f"No .tif/.tiff files found in {landscan_dir}")
+
+    out = {}
+    for p in sorted(candidates):
+        m = re.search(r"(19|20)\d{2}", p.name)
+        if m:
+            year = int(m.group(0))
+            out[year] = p
+
+    if not out:
+        raise ValueError(
+            f"Could not parse years from LandScan filenames in {landscan_dir}. "
+            "Expected filenames containing a 4-digit year."
+        )
+    return out
+
+
+def _grid_transform_from_centers(lat_array: np.ndarray, lon_array: np.ndarray):
+    """
+    Build rasterio affine transform for the LICRICE grid using cell-center coords.
+    Assumes regular spacing.
+    """
+    lat = np.asarray(lat_array, dtype="float64")
+    lon = np.asarray(lon_array, dtype="float64")
+
+    if lat.size < 2 or lon.size < 2:
+        raise ValueError("Need at least 2 lat/lon points to infer grid spacing.")
+
+    dlat = float(lat[1] - lat[0])
+    dlon = float(lon[1] - lon[0])
+
+    west = lon.min() - abs(dlon) / 2.0
+    east = lon.max() + abs(dlon) / 2.0
+    south = lat.min() - abs(dlat) / 2.0
+    north = lat.max() + abs(dlat) / 2.0
+
+    return rasterio.transform.from_bounds(
+        west=west,
+        south=south,
+        east=east,
+        north=north,
+        width=lon.size,
+        height=lat.size,
     )
+
+
+def load_landscan_to_wind_grid(
+    landscan_path: str | Path,
+    lat_array: np.ndarray,
+    lon_array: np.ndarray,
+    dst_crs: str = "EPSG:4326",
+) -> np.ndarray:
+    """
+    Load one annual LandScan raster and resample/reproject it onto the LICRICE wind grid.
+
+    Returns:
+        pop_grid with shape (nlat, nlon)
+    """
+    landscan_path = Path(landscan_path)
+    if not landscan_path.exists():
+        raise FileNotFoundError(f"LandScan raster not found: {landscan_path}")
+
+    dst_shape = (len(lat_array), len(lon_array))
+    dst = np.zeros(dst_shape, dtype=np.float32)
+    dst_transform = _grid_transform_from_centers(lat_array, lon_array)
+
+    with rasterio.open(landscan_path) as src:
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=dst,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=dst_transform,
+            dst_crs=dst_crs,
+            src_nodata=src.nodata,
+            dst_nodata=0.0,
+            resampling=Resampling.average,
+        )
+
+    dst = np.where(np.isfinite(dst), dst, 0.0).astype(np.float32, copy=False)
+    dst[dst < 0] = 0.0
+    return dst
+
+
+def build_population_weight_matrix(
+    W_share: sparse.csr_matrix,
+    pop_grid: np.ndarray,
+) -> sparse.csr_matrix:
+    """
+    Convert area-share matrix to row-normalized population-weight matrix.
+
+    W_pop[p,c] ∝ W_share[p,c] * pop[c]
+    """
+    pop_flat = np.asarray(pop_grid, dtype=np.float64).ravel()
+    W = W_share.multiply(pop_flat)
+
+    row_sums = np.asarray(W.sum(axis=1)).ravel()
+    nonzero = row_sums > 0
+
+    if np.any(nonzero):
+        inv = np.zeros_like(row_sums, dtype=np.float64)
+        inv[nonzero] = 1.0 / row_sums[nonzero]
+        W = sparse.diags(inv) @ W
+
+    return W.tocsr()
+
 
 
 # ---------------------------------------------------------------------
@@ -469,6 +597,7 @@ def aggregate_one_basin(
     outroot: str | Path,
     admin_gdfs: dict[str, gpd.GeoDataFrame],
     litpop_dir: str | Path | None = None,
+    landscan_path: str | Path | None = None,
     haz_var: str = "maxs",
 ) -> None:
     zarr_path = Path(zarr_path)
@@ -486,14 +615,21 @@ def aggregate_one_basin(
     lat_array = ds["lat"].values
     lon_array = ds["lon"].values
 
-    start_dates = pd.to_datetime(ds["start_date"].values) if "start_date" in ds else None
-    storms = wind_da.sizes["storm"]
-
     asset_grid = None
+    pop_grid = None
+
     if scheme == "asset":
         if litpop_dir is None:
             raise ValueError("Asset weighting requires --litpop-dir")
         asset_grid = load_litpop_assets_to_wind_grid(litpop_dir, lat_array, lon_array)
+
+    elif scheme == "population":
+        if landscan_path is None:
+            raise ValueError("Population weighting requires --landscan-path")
+        pop_grid = load_landscan_to_wind_grid(landscan_path, lat_array, lon_array)
+
+    start_dates = pd.to_datetime(ds["start_date"].values) if "start_date" in ds else None
+    storms = wind_da.sizes["storm"]
 
     for level_name, poly_gdf in admin_gdfs.items():
         id_field = admin_id_field(level_name)
@@ -507,19 +643,19 @@ def aggregate_one_basin(
             lon_array=lon_array,
             projected_crs=PROJECTED_CRS,
         )
-
+        
         if scheme == "spatial":
             W = W_share
         elif scheme == "asset":
             W = build_asset_weight_matrix(W_share, asset_grid)
         elif scheme == "population":
-            raise NotImplementedError("Population weighting is a placeholder only.")
+            W = build_population_weight_matrix(W_share, pop_grid)
         else:
             raise ValueError(f"Unknown scheme: {scheme}")
 
         rows = []
         for s in range(storms):
-            arr = wind_da.isel(storm=s).values
+            arr = wind_da.isel(storm=s).transpose("lat", "lon").values
             vflat = np.where(np.isfinite(arr), arr, 0.0).astype(np.float32, copy=False).ravel()
             vals = np.asarray(W @ vflat).ravel()
 
@@ -569,8 +705,8 @@ def main() -> None:
     parser.add_argument(
         "--scheme",
         required=True,
-        choices=["spatial", "asset", "population"],
-        help="Aggregation scheme. Only 'spatial' is implemented right now.",
+        choices=["spatial", "asset", "population", "all"],
+        help="Aggregation scheme to run, or 'all' to run all weighting schemes.",
     )
     parser.add_argument(
         "--admin-file",
@@ -592,14 +728,24 @@ def main() -> None:
         default="maxs",
         help="Hazard variable in LICRICE zarr (default: maxs)",
     )
+    parser.add_argument(
+        "--landscan-path",
+        default=None,
+        help="Path to static LandScan raster (e.g. 2015); required for population weighting",
+    )
 
     args = parser.parse_args()
 
-    if args.scheme == "population":
-        raise NotImplementedError("Population-weighted aggregation has not been implemented yet.")
+    if args.scheme == "all":
+        schemes = ["spatial", "asset", "population"]
+    else:
+        schemes = [args.scheme]
 
-    #if args.scheme == "asset":
-    #    raise NotImplementedError("Asset-weighted aggregation is still a placeholder in this merged version.")
+    if "asset" in schemes and args.litpop_dir is None:
+        raise ValueError("Asset weighting requires --litpop-dir")
+
+    if "population" in schemes and args.landscan_path is None:
+        raise ValueError("Population weighting requires --landscan-path")
 
     zarr_files = discover_zarr_files(args.zarr_dir)
     if not zarr_files:
@@ -608,15 +754,18 @@ def main() -> None:
 
     admin_gdfs = load_all_admin_layers(args.admin_file)
 
-    for zarr_path in zarr_files:
-        aggregate_one_basin(
-            zarr_path=zarr_path,
-            scheme=args.scheme,
-            outroot=args.outroot,
-            admin_gdfs=admin_gdfs,
-            litpop_dir=args.litpop_dir,
-            haz_var=args.haz_var,
-        )
+    for scheme in schemes:
+        print(f"\n=== Running scheme: {scheme} ===")
+        for zarr_path in zarr_files:
+            aggregate_one_basin(
+                zarr_path=zarr_path,
+                scheme=scheme,
+                outroot=args.outroot,
+                admin_gdfs=admin_gdfs,
+                litpop_dir=args.litpop_dir,
+                landscan_path=args.landscan_path,
+                haz_var=args.haz_var,
+            )
 
     print("\nAggregation complete.")
 
