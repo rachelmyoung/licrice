@@ -39,15 +39,15 @@ licrice-standalone/
 │   │   └── aggregate_storm_admin.py  # After wind fields are constructed aggregates to admin0-2 level
 ├── data/
 │   ├── raw/
-│   │   ├── IBTrACS.ALL.v04r01.nc                          # IBTrACS files go here after they are extracted
-│   │   ├── admin/
+│   │   ├── IBTrACS.ALL.v04r01.nc                            # IBTrACS files go here after they are extracted
+│   │   ├── admin/                                           # GADM administrative boundaries
 │   │   │   └── gadm_410.gpkg
-│   │   ├── LitPop_v1_2/
+│   │   ├── LitPop_v1_2/                                     # gridded asset data
 │   │   │   └── LitPop_pc_30arcsec_<country>.csv/
-│   │   └── population/
+│   │   └── landscan-global-2010-assets/                     # 2010 gridded population data
 │   │       └── population.csv/
 │   ├── output/
-│   │   ├── hazard_wind_licrice_hist_<domain>.zarr         # output LICRICE wind files
+│   │   ├── hazard_wind_licrice_hist_<domain>.zarr           # output LICRICE wind files
 │   │   └── aggregated/
 │   │       ├── spatial/
 │   │       │   └── storm_<admin>_<domain>_<haz>.parquet     # output spaitally weighted wind fields
@@ -69,7 +69,7 @@ cd licrice-standalone
 pip install -e .
 ```
 
-Dependencies (`numpy`, `xarray`, `pandas`, `dask`, `zarr`, `scipy`, `scikit-learn`, `joblib`, `beautifulsoup4`, `tqdm`, `netCDF4`, `bottleneck`, `pyarrow`, `fastparquet`, `fiona`) are declared in `pyproject.toml` and installed automatically.
+Dependencies (`numpy`, `xarray`, `pandas`, `dask`, `zarr`, `scipy`, `scikit-learn`, `joblib`, `beautifulsoup4`, `tqdm`, `netCDF4`, `bottleneck`, `pyarrow`, `fastparquet`, `fiona`, `rasterio`) are declared in `pyproject.toml` and installed automatically.
 
 Create directories for the IBTrACS input data and LICRICE outputs:
 
