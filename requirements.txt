@@ -4,3 +4,6 @@ pandas
 dask
 scipy
 zarr
+pyarrow
+fastparquet
+fiona
