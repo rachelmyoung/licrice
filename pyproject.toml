@@ -19,9 +19,9 @@ dependencies = [
     "beautifulsoup4", # NEW
     "tqdm", # NEW
     "netCDF4", # NEW
-    "bottleneck" # NEW
-    "pyarrow" # NEW
-    "fastparquet" # NEW
+    "bottleneck", # NEW
+    "pyarrow", # NEW
+    "fastparquet", # NEW
     "fiona" # NEW
 ]
 
