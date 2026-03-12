@@ -3,7 +3,13 @@ xarray
 pandas
 dask
 scipy
+scikit-learn
+joblib
+beautifulsoup4
 zarr
+tqdm
+netCDF4
+bottleneck
 pyarrow
 fastparquet
 fiona
