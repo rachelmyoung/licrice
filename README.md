@@ -164,7 +164,7 @@ python -m licrice.aggregation.aggregate_storm_admin \
 python -m licrice.aggregation.aggregate_storm_admin \
   --zarr-dir data/output \
   --scheme population \
-  --landscan-path /data/raw/landscan-global-2015-assets/landscan-global-2015.tif
+  --landscan-path data/raw/landscan-global-2015-assets/landscan-global-2015.tif
 
 # Advance options: Asset-weighted only
 python -m licrice.aggregation.aggregate_storm_admin \
