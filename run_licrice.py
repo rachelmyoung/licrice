@@ -184,7 +184,11 @@ def run_aggregation(outdir, domains, args):
             "--zarr-dir",
             str(outdir),
             "--scheme",
-            scheme
+            scheme,
+            "--admin-file",
+            args.admin_file,
+            "--outroot",
+            str(pathlib.Path(outdir) / "aggregated"),
         ]
 
         if scheme == "asset":
@@ -193,9 +197,9 @@ def run_aggregation(outdir, domains, args):
             cmd += ["--litpop-dir", args.litpop_dir]
 
         if scheme == "population":
-            if args.population_dir is None:
-                raise ValueError("Population weighting requires --population-dir")
-            cmd += ["--population-dir", args.population_dir]
+            if args.landscan_path is None:
+                raise ValueError("Population weighting requires --landscan-path")
+            cmd += ["--landscan-path", args.landscan_path]
 
         print("Running:", " ".join(cmd))
         subprocess.run(cmd, check=True)
@@ -275,9 +279,14 @@ def main():
         help="Path to LitPop asset files (required for asset weighting)."
     )
     parser.add_argument(
-        "--population-dir",
+        "--landscan-path",
         default=None,
-        help="Path to population grid files (required for population weighting)."
+        help="Path to static LandScan raster (required for population weighting)."
+    )
+    parser.add_argument(
+        "--admin-file",
+        default="data/raw/admin/gadm_410.gpkg",
+        help="Path to GADM geopackage for administrative aggregation."
     )
     parser.add_argument(
         "--agg-script",
