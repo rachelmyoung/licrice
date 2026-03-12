@@ -655,7 +655,7 @@ def aggregate_one_basin(
 
         rows = []
         for s in range(storms):
-            arr = wind_da.isel(storm=s).transpose("lat", "lon").values
+            arr = wind_da.isel(storm=s).transpose("y_ix", "x_ix").values
             vflat = np.where(np.isfinite(arr), arr, 0.0).astype(np.float32, copy=False).ravel()
             vals = np.asarray(W @ vflat).ravel()
 
