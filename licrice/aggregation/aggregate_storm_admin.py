@@ -11,7 +11,7 @@ Planned but not yet implemented:
 
 Expected raw inputs:
     data/raw/admin/gadm_410.gpkg
-    data/raw/litpop/...
+    data/raw/LitPop_v1_2/LitPop_pc_30arcsec_<country>.csv
     data/output/hazard/hazard_wind_licrice_hist_<domain>.zarr
 
 Outputs:
